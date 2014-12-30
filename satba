@@ -1,0 +1,77 @@
+
+
+(def ch-cd-implications 
+  (into []
+        (for [c courses
+              day days]
+          (into #{}
+                (cons {:negated? true
+                       :type :course-teached-at-day
+                       :course c
+                       :day day}
+                      (for [h (range 1 (inc hours-per-day))]
+                        {:type :course-teached-at-timeslot
+                         :course c
+                         :timeslot {:day day :hours h}}))))))
+
+
+(def cd-ch-implications
+  (into []
+        (for [c courses
+              ts timeslots]
+          #{{:negated? true
+             :type :course-teached-at-timeslot
+             :course c
+             :timeslot ts}
+            {:type :course-teached-at-day
+             :course c
+             :day (:day ts)}})))
+
+
+(def ch-hk-relations
+  (into []
+        (for [c courses
+              ts timeslots]
+          #{{:negated? true
+             :type :course-teached-at-timeslot
+             :course c
+             :timeslot ts}
+            {:type :class-teached-at-timeslot
+             :class (:class c)
+             :timeslot ts}})))
+
+(def hk-ch-relations
+  (into []
+        (for [c classes
+              ts timeslots]
+          (into #{}
+                (cons {:negated? true
+                       :type :class-teached-at-timeslot
+                       :class c
+                       :timeslot ts}
+                      (for [subject (keys (:subjects-needed c))]
+                        {:type :course-teached-at-timeslot
+                         :course {:class c
+                                  :subject subject}
+                         :timeslot ts}))))))
+
+
+(def curriculum-clashes
+  (into []
+        (for [c classes
+              ts timeslots
+              s1 (keys (:needed-subjects c))
+              s2 (keys (:needed-subjects c))
+              :when (not= s1 s2)]
+          #{{:negated? true
+             :type :course-teached-at-timeslot
+             :course {:class c :subject s1}
+             :timeslot ts}
+            {:negated? true
+             :type :course-teached-at-timeslot
+             :course {:class c :subject s2}
+             :timeslot ts}})))
+
+;;simplification class is teached only by one teacher
+;;then teacher-clashes is the same as curriculum clashes
+
