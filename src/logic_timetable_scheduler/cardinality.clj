@@ -190,18 +190,27 @@
            int)))
 
 (defn at-least [as p]
-  (let [n (count as)
-        k (next-power-of-2 p)
-        r (rem n k)
-        additional-vars
-        (if (= 0 r) [] (generate-unique-vars (- k r) "a" false))
-        as (concat as additional-vars)
-        [cs s] (card :at-least as k)]
-    (concat s [#{(nth cs (dec p))}])))
+  (cond
+    (== p 0) []
+    (== p (count as)) (into [] as)
+    :else 
+    (let [n (count as)
+          k (next-power-of-2 p)
+          r (rem n k)
+          additional-vars
+          (if (= 0 r) [] (generate-unique-vars (- k r) "a" false))
+          as (concat as additional-vars)
+          [cs s] (card :at-least as k)]
+      (concat s [#{(nth cs (dec p))}]))))
 
 (defn at-most [as p]
-  (if false #_(> p (/ (count as) 2))
-    (at-least (map negate as) (- (count as) p))
+  (cond
+    (== p 0) (mapv negate as)
+    (== p (count as)) []
+    (> p (/ (count as) 2)) (at-least
+                            (map negate as)
+                            (- (count as) p))
+    :else
     (let [n (count as)
           _ (prn "count " n)
           k (next-power-of-2 p)
