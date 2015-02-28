@@ -6,10 +6,15 @@
              :refer [$= $+ $reify $and $<= $if $!= $>= $or $iff]])
   (:gen-class))
 
+(defn invert-vector [v]
+  (into {} (map (fn [a b] [b a]) (range (count v)) v)))
+
 (def teachers [{:sid "Kk" :hours-per-week 15}
                {:sid "sch" :hours-per-week 9}
                {:sid "ss" :hours-per-week 15}
                {:sid "ww" :hours-per-week 15}])
+
+(def inv-teachers (invert-vector teachers))
 
 (def rooms [{:name "A1"}
             {:name "A2"}
@@ -17,37 +22,64 @@
             {:name "A4"}
             {:name "Sporthalle"}])
 
+(def inv-rooms (invert-vector rooms))
+
 (def classes [{:name "3a" :teacher (first teachers) :needed-subjects {"Deutsch" 3 "Mathe" 4 "Sport" 2 "Kunst" 2 "Sachkunde" 4} :room (first rooms)}
               {:name "3b" :teacher (first teachers) :needed-subjects {"Deutsch" 3 "Mathe" 4 "Sport" 2 "Kunst" 2 "Sachkunde" 4} :room (first rooms)}
               {:name "3c" :teacher (first teachers) :needed-subjects {"Deutsch" 3 "Mathe" 4 "Sport" 2 "Kunst" 2 "Sachkunde" 4} :room (first rooms)}
               {:name "3d" :teacher (first teachers) :needed-subjects {"Deutsch" 3 "Mathe" 4 "Sport" 2 "Kunst" 2 "Sachkunde" 4} :room (first rooms)}
               {:name "1a" :teacher (last teachers) :needed-subjects {"Deutsch" 2 "Mathe" 3 "Sport" 2 "Kunst" 2} :room (last rooms)}])
 
+(def inv-classes (invert-vector classes))
 
 (def days [:monday :tuesday :wednesday :thursday :friday])
 
-(def hours-per-day 100)
+(def inv-days (invert-vector days))
 
+(def hours-per-day 8)
 
-(def timeslots
+(def hours
   (for [d days
         h (range 1 (inc hours-per-day))]
     {:day d
      :hour h}))
 
+(def teacher-not-available
+  {(first teachers) []
+   (second teachers) []})
+
+
+
+(def inv-hours (invert-vector hours))
+
 (def courses
   (for [c classes
-        subject (keys (:needed-subjects c))
-        numb (range (get (:needed-subjects c) subject))]
+        subject (keys (:needed-subjects c))]
     {:class c
-     :subject subject
-     :number numb}))
+     :subject subject}))
+
+(def course-not-available
+  (into {} (map vector courses (repeat []))))
+
+(defn hour-count-for-course [c]
+  (get (:needed-subjects (:class c)) (:subject c)))
+
+(defn working-days [c]
+  (quot (hour-count-for-course c) 2))
+
+(def inv-courses (invert-vector courses))
+
+(def constraint-functions  (atom #{}))
+
+(defmacro defconstraints [name args & body]
+  `(do (defn ~name ~args
+         ~@body)
+       (swap! constraint-functions conj ~name)))
 
 (defn encode-literal [name-map literal]
   (if-let [numb (get name-map (:var literal))]
     [name-map (if (:negated? literal) (- numb) numb)]
     (let [mkey (apply max 0 (vals name-map))]
-      (prn "literal " literal "not found in name-map")
       (recur (assoc name-map (:var literal) (inc mkey)) literal))))
 
 (defn encode-clause [name-map clause]
@@ -78,6 +110,129 @@
                                  encoded)))]))
 
 
+;;variablen definieren
+;;ch_{c,h} Kurs c findet zur Stunden (timeslot) h statt
+;;es werden immer die objekte übergeben nicht die indizes
+(defn ch [c h]
+  (gen-var (symbol (str "ch" (inv-courses c) "," (inv-hours h)))))
+
+(defn cd [c d]
+  (gen-var (symbol (str "cd" (inv-courses c) "," (inv-days d)))))
+
+(defn cr [c r]
+  (gen-var (symbol (str "cr" (inv-courses c) "," (inv-rooms r)))))
+
+(defn kh [k h]
+  (gen-var (symbol (str "kr" (inv-classes k) "," (inv-hours h)))))
+
+(defn ct [c t]
+  (gen-var (symbol (str "ct" (inv-courses c) "," (inv-teachers t)))))
+
+(defn th [t h]
+  (gen-var (symbol (str "th" (inv-teachers t) "," (inv-hours h)))))
+
+(defconstraints ch-cd-implications []
+  (for [c courses
+        h hours]          
+    #{(negate (ch c h)) (negate (cd c (:day h)))}))
+
+(defconstraints cd-ch-implications []
+  (let [by-days (group-by :day hours)]
+    (for [[d hs-at-d] by-days
+          c courses]
+      (into #{} (cons (negate (cd c d)) (map #(ch c %) hs-at-d))))))
+
+(defconstraints ch-kh-implications []
+  (for [c courses
+        h hours]
+    #{(negate (ch c h)) (kh (:class c) h)}))
+
+(defconstraints kh-ch-implications []
+  (let [by-classes (group-by :class courses)]
+    (for [[k cs-with-k] by-classes
+          h hours]
+      (into #{} (cons (negate (kh k h)) (map #(ch % h) cs-with-k))))))
+
+
+(defn- pairs-of-distinct [coll]
+  (for [c1 coll
+        c2 coll
+        :when (not= c1 c2)]
+    [c1 c2]))
+;;now constraints can be encoded
+;;class clashes
+;;no two courses c1 and c2 belonging to the same class my be scheduled
+;;at the same hours
+
+(defn pred-clash-constraints [pred]
+  (let [by-pred (group-by pred courses)]
+    (for [[k cs-matching-pred] by-pred
+          [c1 c2] (pairs-of-distinct cs-matching-pred)
+          h hours]
+      #{(negate (ch c1 h)) (negate (ch c2 h))})))
+
+(defconstraints class-clash-constraints []
+  (pred-clash-constraints :classes))
+
+(defconstraints teacher-clash-constraints []
+  (for [t teachers
+        h hours
+        [c1 c2] (pairs-of-distinct courses)]
+    #{(negate (ch c1 h)) (negate (ch c2 h))
+      (negate (ct c1 t)) (negate (ct c2 t))}))
+
+(defconstraints room-clash-constraints []
+  (for [r rooms
+        h hours
+        [c1 c2] (pairs-of-distinct courses)]
+    #{(negate (ch c1 h)) (negate (ch c2 h))
+      (negate (cr c1 r)) (negate (cr c2 r))}))
+
+
+(defconstraints number-course-constraints []
+  (->> (for [c courses]
+         (exactly (map #(ch c %) hours) (hour-count-for-course c)))
+       (apply concat)))
+
+
+(defn working-days-constraints []
+  (->> (for [c courses]
+         (at-least (map #(cd c %) days) (working-days c)))
+       (apply concat)))
+
+;;isolated lectures
+(defn isolated-lectures-constraints []
+  (let [by-days (group-by :day hours)]
+    (->> (for [k classes
+               [d at-d] by-days]
+           (concat
+            [#{(negate (kh k (first at-d))) (kh k (second at-d))}]
+            (map (fn [[p c n]]
+                   #{(negate (kh k c)) (kh k p) (kh k n)})
+                 (partition 3 1 at-d))
+            [#{(negate (kh k (last at-d)))
+               (kh k (last (butlast at-d)))}]))
+         (apply concat))))
+
+
+;;problem
+;;room could change for course (because course has more than one hour...) -> later
+;;for now like in the paper room stability exactly one room for course
+(defn room-stability-constraints  []
+  (->> (for [c courses]
+         (exactly (map #(cr c %) rooms) 1))
+       (apply concat)))
+
+
+
+(defn generate-all-constraints []
+  (mapcat (fn [f] (f)) @constraint-functions))
+
+(defn deploy-problem []
+  (let [cs (generate-all-constraints)
+        encoded (encode cs)]
+    (spit (str "/home/kima/Downloads/" "cnf1") (second encoded))))
+
 
 (comment
   (def as (map (comp gen-var symbol (partial str "a")) (range 8)))
@@ -91,37 +246,6 @@
   "java -jar sat4j-sat.jar cnf1" im Ordner Downloads
   
   )
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 

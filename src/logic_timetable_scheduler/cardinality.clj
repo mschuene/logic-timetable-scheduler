@@ -172,7 +172,6 @@
   "k-cardinality network Sequence A of length n = m*k with k power of
   two returns [c s] c sequence of length k and S set of clauses"
   [type as k]
-  (prn "k is " k)
   (if (= (count as) k)
     (h-sort type as)
     (let [[ds s-d] (card type (take k as) k)
@@ -212,18 +211,13 @@
                             (- (count as) p))
     :else
     (let [n (count as)
-          _ (prn "count " n)
           k (next-power-of-2 p)
-          _ (prn "k " k)
           k (if (= k p) (* 2 k) k)
           r (rem n k)
-          _ (prn "r " r)
           additional-vars
           (if (= 0 r) [] (generate-unique-vars (- k r) "a" false)) ;??
           as (concat as additional-vars)
-          _ (prn "vervollständigte as " as)
-          [cs s] (card :at-most as k)
-          _ (prn "cs " cs (count cs))]
+          [cs s] (card :at-most as k)]
       (concat s [#{(negate (nth cs p))}]))))
 
 (defn at-most-h-sort [as p]
@@ -239,10 +233,12 @@
         additional-vars
         (if (= 0 r) [] (generate-unique-vars (- k r) "a" false)) ;??
         as (concat as additional-vars)
-        _ (prn "hi")
         [cs s] (card :between as k)]
-    (prn "hi" (count cs) "k " k)
     (concat s [#{(nth cs (dec p))} #{(negate (nth cs q))}])))
+
+
+(defn exactly [as k]
+  (in-between as k k))
 
 ;;at-most p with w > n/2
 ;;todo
@@ -258,3 +254,4 @@
 ;;auf cp+1 gibt es keinen constraint!!! wo kommt die variable her ?
 ;;muss links zu anderen variablen geben sonst ist alles schwachsinn hierxo
 ;;;FUNKTIONIERT ENDLICH FÜR LÄNGE VIELFACHES VON 2 WENN NICHT MUSS NOCH TESTEN
+;;;alles klappt juhu
